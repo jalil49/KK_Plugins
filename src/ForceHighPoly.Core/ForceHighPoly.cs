@@ -17,14 +17,18 @@ namespace KK_Plugins
         public const string Version = "2.0";
         public static ConfigEntry<bool> Enabled { get; private set; }
         public static ConfigEntry<PolyMode> PolySetting { get; private set; }
+        internal static BepInEx.Logging.ManualLogSource logger;
+        public static System.Collections.Generic.HashSet<ChaControl> ForcedChaInfos { get; private set; } = new System.Collections.Generic.HashSet<ChaControl>();
         internal void Main()
         {
+            logger = Logger;
             var hasEnoughRam = KKAPI.Utilities.MemoryInfo.GetCurrentStatus().ullTotalPhys > 16L * 1000L * 1000L * 1000L; // At least 16GB
             PolySetting = Config.Bind("Config", "Force High Poly Models", hasEnoughRam ? PolyMode.Full : PolyMode.Partial, "Whether or not to load high poly models in the main game roaming mode (has no effect outside of that). Improves quality of characters and fixes some modded items not appearing.\nMay require exiting to main menu to take effect.\nNone: Original behavior - Some characters may throw errors and walk around with glitched clothing.\nPartial: Use high poly models only if necessary. Higher resource usage and longer load times when using some modded clothes.\nFull: Always use high poly models. Best quality but very high resource usage. At least 8GB of RAM is recommended with ~10 characters. Load times can be 3x longer.");
             PolySetting.SettingChanged += PolySetting_SettingChanged;
             Enabled = Config.Bind("Config", "High poly mode", hasEnoughRam, new ConfigDescription("Original setting kept due to external dependency, no longer used.\nUse the 'Force High Poly Models' setting instead.", null, new ConfigurationManagerAttributes() { Browsable = false }));
             Enabled.SettingChanged += Enabled_SettingChanged;
-            HarmonyLib.Harmony.CreateAndPatchAll(typeof(Hooks));
+            var harmon = HarmonyLib.Harmony.CreateAndPatchAll(typeof(Hooks));
+            //harmon.PatchMoveNext(AccessTools.Method(typeof(ChaControl), nameof(ChaControl.LoadAsync)), prefix: new HarmonyMethod(typeof(Hooks), nameof(Hooks.MoveNextLoadAsyncPrefix)), postfix: new HarmonyMethod(typeof(Hooks), nameof(Hooks.MoveNextLoadAsyncPosfix)));
         }
 
 

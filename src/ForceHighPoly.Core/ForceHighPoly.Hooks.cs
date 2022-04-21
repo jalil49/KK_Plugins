@@ -1,4 +1,6 @@
 ﻿using HarmonyLib;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace KK_Plugins
 {
@@ -6,6 +8,7 @@ namespace KK_Plugins
     {
         internal static class Hooks
         {
+
             /// <summary>
             /// Test all coordiantes parts to check if a low poly doesn't exist.
             /// if low poly doesnt exist for an item set HiPoly to true and exit;
@@ -14,9 +17,13 @@ namespace KK_Plugins
             [HarmonyPostfix, HarmonyPatch(typeof(ChaControl), nameof(ChaControl.Initialize))]
             internal static void CheckHiPoly(ChaControl __instance)
             {
-                if (PolySetting.Value == PolyMode.Full) __instance.hiPoly = true;
+                if (__instance.hiPoly || PolySetting.Value == PolyMode.None) return;
 
-                if (__instance.hiPoly || PolySetting.Value != PolyMode.Partial) return;
+                if (PolySetting.Value == PolyMode.Full)
+                {
+                    ForcedChaInfos.Add(__instance);
+                    return;
+                }
 
                 var exType = Traverse.Create(__instance).Property("exType");
                 var exTypeExists = exType.PropertyExists();
@@ -75,7 +82,8 @@ namespace KK_Plugins
 #endif
                         if (!CommonLib.LoadAsset<UnityEngine.GameObject>(assetBundleName, highAssetName + "_low", false, manifestName) && CommonLib.LoadAsset<UnityEngine.GameObject>(assetBundleName, highAssetName, false, manifestName))
                         {
-                            __instance.hiPoly = true;
+                            logger.LogWarning($"{__instance.fileParam.fullname} added Hipolycheck");
+                            ForcedChaInfos.Add(__instance);
                             return;
                         }
                     }
@@ -88,10 +96,56 @@ namespace KK_Plugins
             /// </summary>
             /// <param name="__result"></param>
             [HarmonyPostfix, HarmonyPatch(typeof(ChaInfo), nameof(ChaInfo.hiPoly), MethodType.Getter)]
-            private static void HiPolyPostfix(ref bool __result)
+            private static void HiPolyPostfix(ChaInfo __instance, ref bool __result)
             {
-                __result = __result || Enabled.Value;
+                __result |= AnythingLoading && ForcedChaInfos.Any(x => __instance == x) && ChainfoloadDict.TryGetValue(__instance, out var value) && !value;
+                /*if (AnythingLoading && ChainfoloadDict.TryGetValue(__instance, out value)) */
+                ChainfoloadDict.TryGetValue(__instance, out value);
+                logger.LogDebug(string.Format("{0} result? {1} anythingloading? {2} loadingstatus? {3}", __instance.fileParam.fullname, __result, AnythingLoading, !value));
+                //logger.LogDebug(string.Format("get {0} loading? {1} {2}", __instance.fileParam.fullname, !value, !value ? System.Environment.StackTrace : ""));
             }
+
+            static Dictionary<ChaInfo, bool> ChainfoloadDict = new Dictionary<ChaInfo, bool>();
+            static bool AnythingLoading = true;
+
+            [HarmonyPrefix]
+            [HarmonyPatch(typeof(ChaControl), nameof(ChaControl.LoadNoAsync))]
+            [HarmonyPatch(typeof(ChaControl), nameof(ChaControl.LoadAsync))]
+            [HarmonyPatch(typeof(ChaControl), nameof(ChaControl.ReloadNoAsync))]
+            [HarmonyPatch(typeof(ChaControl), nameof(ChaControl.ReloadAsync))]
+            internal static void LoadAsyncPrefix(ChaControl __instance)
+            {
+                ChainfoloadDict[__instance] = false;
+                AnythingLoading = true;
+                logger.LogWarning($"Prefix: still loading {ChainfoloadDict.Values.Where(x => !x).Count()}");
+            }
+
+            [HarmonyPostfix]
+            [HarmonyPatch(typeof(ChaControl), nameof(ChaControl.LoadNoAsync))]
+            [HarmonyPatch(typeof(ChaControl), nameof(ChaControl.LoadAsync))]
+            [HarmonyPatch(typeof(ChaControl), nameof(ChaControl.ReloadNoAsync))]
+            [HarmonyPatch(typeof(ChaControl), nameof(ChaControl.ReloadAsync))]
+            internal static void LoadAsyncPostfix(ChaControl __instance)
+            {
+                ChainfoloadDict[__instance] = true;
+                AnythingLoading = ChainfoloadDict.Values.Any(x => !x);
+                logger.LogWarning($"Postfix: still loading {ChainfoloadDict.Values.Where(x => !x).Count()}");
+            }
+
+            [HarmonyPrefix, HarmonyPatch(typeof(ChaControl), nameof(ChaControl.OnDestroy))]
+            internal static void OnDestroyPrefix(ChaControl __instance)
+            {
+                ForcedChaInfos.Remove(__instance);
+                ChainfoloadDict.Remove(__instance);
+                AnythingLoading = ChainfoloadDict.Values.Any(x => !x);
+            }
+
+            [HarmonyPrefix, HarmonyPatch(typeof(Manager.Character), nameof(Manager.Character.DeleteChara)), HarmonyPriority(Priority.Last)]
+            private static void DeleteCharaPrefix(ChaControl cha, bool entryOnly, ref bool __result)
+            {
+                logger.LogWarning($"Deleting {cha.fileParam.fullname}");
+            }
+
         }
     }
 }
